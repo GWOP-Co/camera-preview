@@ -92,6 +92,7 @@ public class CameraPreview: CAPPlugin {
                     self.webView?.backgroundColor = UIColor.clear
                     self.webView?.scrollView.backgroundColor = UIColor.clear
                     self.webView?.superview?.addSubview(self.previewView)
+                    self.webView?.superview?.backgroundColor = UIColor(hex: "#130426")?.cgColor;
                     if self.toBack! {
                         self.webView?.superview?.bringSubviewToFront(self.webView!)
                     }
