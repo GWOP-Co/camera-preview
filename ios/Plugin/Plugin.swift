@@ -29,6 +29,7 @@ public class CameraPreview: CAPPlugin {
         if UIApplication.shared.statusBarOrientation.isLandscape {
             self.previewView.frame = CGRect(x: self.y!, y: self.x!, width: max(height, self.width!), height: min(height, self.width!))
             self.cameraController.previewLayer?.frame = self.previewView.frame
+            self.cameraController.previewLayer?.backgroundColor = UIColor(hex: "#130426")?.cgColor;
         }
 
         if UIApplication.shared.statusBarOrientation.isPortrait {
@@ -36,6 +37,7 @@ public class CameraPreview: CAPPlugin {
                 self.previewView.frame = CGRect(x: self.x!, y: self.y!, width: min(height, self.width!), height: max(height, self.width!))
             }
             self.cameraController.previewLayer?.frame = self.previewView.frame
+            self.cameraController.previewLayer?.backgroundColor = UIColor(hex: "#130426")?.cgColor;
         }
 
         cameraController.updateVideoOrientation()
