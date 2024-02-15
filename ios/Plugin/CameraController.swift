@@ -163,6 +163,7 @@ extension CameraController {
         view.layer.backgroundColor = UIColor(hex: "#130426")?.cgColor
         view.layer.insertSublayer(self.previewLayer!, at: 0)
         self.previewLayer?.frame = view.frame
+        self.previewLayer?.backgroundColor = UIColor(hex: "#130426")?.cgColor
 
         updateVideoOrientation()
     }
