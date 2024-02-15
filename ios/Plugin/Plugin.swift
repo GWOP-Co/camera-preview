@@ -29,7 +29,7 @@ public class CameraPreview: CAPPlugin {
         if UIApplication.shared.statusBarOrientation.isLandscape {
             self.previewView.frame = CGRect(x: self.y!, y: self.x!, width: max(height, self.width!), height: min(height, self.width!))
             self.cameraController.previewLayer?.frame = self.previewView.frame
-            self.cameraController.previewLayer?.backgroundColor = UIColor(hex: "#130426")?.cgColor;
+            self.previewView?.backgroundColor = UIColor(hex: "#130426");
         }
 
         if UIApplication.shared.statusBarOrientation.isPortrait {
@@ -37,7 +37,7 @@ public class CameraPreview: CAPPlugin {
                 self.previewView.frame = CGRect(x: self.x!, y: self.y!, width: min(height, self.width!), height: max(height, self.width!))
             }
             self.cameraController.previewLayer?.frame = self.previewView.frame
-            self.cameraController.previewLayer?.backgroundColor = UIColor(hex: "#130426")?.cgColor;
+            self.previewView?.backgroundColor = UIColor(hex: "#130426");
         }
 
         cameraController.updateVideoOrientation()
@@ -94,7 +94,7 @@ public class CameraPreview: CAPPlugin {
                     self.webView?.backgroundColor = UIColor.clear
                     self.webView?.scrollView.backgroundColor = UIColor.clear
                     self.webView?.superview?.addSubview(self.previewView)
-                    self.webView?.superview?.backgroundColor = UIColor(hex: "#130426")
+                    self.previewView.backgroundColor = UIColor(hex: "#130426")
                     if self.toBack! {
                         self.webView?.superview?.bringSubviewToFront(self.webView!)
                     }
