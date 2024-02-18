@@ -22,6 +22,7 @@ public class CameraPreview: CAPPlugin {
     var enableZoom: Bool?
     var highResolutionOutput: Bool = false
     var disableAudio: Bool = false
+    var mirrorVideo: Bool = false
 
     @objc func rotated() {
         let height = self.paddingBottom != nil ? self.height! - self.paddingBottom!: self.height!
@@ -29,7 +30,6 @@ public class CameraPreview: CAPPlugin {
         if UIApplication.shared.statusBarOrientation.isLandscape {
             self.previewView.frame = CGRect(x: self.y!, y: self.x!, width: max(height, self.width!), height: min(height, self.width!))
             self.cameraController.previewLayer?.frame = self.previewView.frame
-            self.cameraController.previewLayer?.backgroundColor = UIColor(hex: "#130426")?.cgColor
         }
 
         if UIApplication.shared.statusBarOrientation.isPortrait {
@@ -37,7 +37,6 @@ public class CameraPreview: CAPPlugin {
                 self.previewView.frame = CGRect(x: self.x!, y: self.y!, width: min(height, self.width!), height: max(height, self.width!))
             }
             self.cameraController.previewLayer?.frame = self.previewView.frame
-            self.cameraController.previewLayer?.backgroundColor = UIColor(hex: "#130426")?.cgColor
         }
 
         cameraController.updateVideoOrientation()
@@ -69,6 +68,7 @@ public class CameraPreview: CAPPlugin {
         self.storeToFile = call.getBool("storeToFile") ?? false
         self.enableZoom = call.getBool("enableZoom") ?? false
         self.disableAudio = call.getBool("disableAudio") ?? false
+        self.mirrorVideo = call.getBool("mirrorVideo") ?? false
 
         AVCaptureDevice.requestAccess(for: .video, completionHandler: { (granted: Bool) in
             guard granted else {
@@ -82,7 +82,7 @@ public class CameraPreview: CAPPlugin {
                     self.previewView.removeFromSuperview()
                     self.webView?.isOpaque = true
                 }
-                self.cameraController.prepare(cameraPosition: self.cameraPosition, disableAudio: self.disableAudio) {error in
+                self.cameraController.prepare(cameraPosition: self.cameraPosition, disableAudio: self.disableAudio) { error in
                     if let error = error {
                         print(error)
                         call.reject(error.localizedDescription)
@@ -94,7 +94,6 @@ public class CameraPreview: CAPPlugin {
                     self.webView?.backgroundColor = UIColor.clear
                     self.webView?.scrollView.backgroundColor = UIColor.clear
                     self.webView?.superview?.addSubview(self.previewView)
-                    self.cameraController.previewLayer?.backgroundColor = UIColor(hex: "#130426")?.cgColor;
                     if self.toBack! {
                         self.webView?.superview?.bringSubviewToFront(self.webView!)
                     }
@@ -221,6 +220,17 @@ public class CameraPreview: CAPPlugin {
             }
         }
     }
+    
+    @objc func resume(_ call: CAPPluginCall) {
+        self.cameraController.resume() { error in
+            if let error = error {
+                print(error)
+                call.reject(error.localizedDescription)
+                return
+            }
+            call.resolve()
+        }
+    }
 
     @objc func getSupportedFlashModes(_ call: CAPPluginCall) {
         do {
@@ -265,28 +275,35 @@ public class CameraPreview: CAPPlugin {
         DispatchQueue.main.async {
 
             let quality: Int? = call.getInt("quality", 85)
+            self.mirrorVideo = call.getBool("mirrorVideo") ?? self.mirrorVideo
 
-            self.cameraController.captureVideo { (image, error) in
-
-                guard let image = image else {
-                    print(error ?? "Image capture error")
-                    guard let error = error else {
-                        call.reject("Image capture error")
-                        return
-                    }
-                    call.reject(error.localizedDescription)
+            self.cameraController.captureVideo(mirror: self.mirrorVideo) { (error) in
+                guard let error = error else {
+                    call.resolve()
                     return
                 }
-
-                call.resolve(["value": image.absoluteString])
+                call.reject(error.localizedDescription)
+                return
             }
         }
     }
 
     @objc func stopRecordVideo(_ call: CAPPluginCall) {
 
-        self.cameraController.stopRecording { (_) in
+        self.cameraController.stopRecording { (video, error) in
+            guard let video = video else {
+                print(error ?? "Video capture error")
+                guard let error = error else {
+                    call.reject("Video capture error")
+                    return
+                }
+                call.reject(error.localizedDescription)
+                return
+            }
 
+            // self.videoUrl = image
+
+            call.resolve(["videoFilePath": video.absoluteString])
         }
     }
 
