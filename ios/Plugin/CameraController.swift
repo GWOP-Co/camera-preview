@@ -17,7 +17,7 @@ class CameraController: NSObject {
     var frontCamera: AVCaptureDevice?
     var frontCameraInput: AVCaptureDeviceInput?
 
-    var dataOutput: AVCaptureVideoDataOutput?
+    var videoOutput: AVCaptureMovieFileOutput?
     var photoOutput: AVCapturePhotoOutput?
 
     var rearCamera: AVCaptureDevice?
@@ -27,6 +27,7 @@ class CameraController: NSObject {
 
     var flashMode = AVCaptureDevice.FlashMode.off
     var photoCaptureCompletionBlock: ((UIImage?, Error?) -> Void)?
+    var videoCaptureCompletionBlock: ((URL?, Error?) -> Void)?
 
     var sampleBufferCaptureCompletionBlock: ((UIImage?, Error?) -> Void)?
 
@@ -42,6 +43,7 @@ extension CameraController {
     func prepare(cameraPosition: String, disableAudio: Bool, completionHandler: @escaping (Error?) -> Void) {
         func createCaptureSession() {
             self.captureSession = AVCaptureSession()
+            self.captureSession?.beginConfiguration()
         }
 
         func configureCaptureDevices() throws {
@@ -110,25 +112,19 @@ extension CameraController {
             self.photoOutput!.setPreparedPhotoSettingsArray([AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])], completionHandler: nil)
             self.photoOutput?.isHighResolutionCaptureEnabled = self.highResolutionOutput
             if captureSession.canAddOutput(self.photoOutput!) { captureSession.addOutput(self.photoOutput!) }
-            captureSession.startRunning()
         }
 
-        func configureDataOutput() throws {
+        func configureVideoOutput() throws {
             guard let captureSession = self.captureSession else { throw CameraControllerError.captureSessionIsMissing }
-
-            self.dataOutput = AVCaptureVideoDataOutput()
-            self.dataOutput?.videoSettings = [
-                (kCVPixelBufferPixelFormatTypeKey as String): NSNumber(value: kCVPixelFormatType_32BGRA as UInt32)
-            ]
-            self.dataOutput?.alwaysDiscardsLateVideoFrames = true
-            if captureSession.canAddOutput(self.dataOutput!) {
-                captureSession.addOutput(self.dataOutput!)
+            
+            self.videoOutput = AVCaptureMovieFileOutput()
+            
+            if captureSession.canAddOutput(self.videoOutput!) {
+                captureSession.addOutput(self.videoOutput!)
+            } else {
+                throw CameraControllerError.invalidOperation
             }
-
-            captureSession.commitConfiguration()
-
-            let queue = DispatchQueue(label: "DataOutput", attributes: [])
-            self.dataOutput?.setSampleBufferDelegate(self, queue: queue)
+            
         }
 
         DispatchQueue(label: "prepare").async {
@@ -137,8 +133,9 @@ extension CameraController {
                 try configureCaptureDevices()
                 try configureDeviceInputs()
                 try configurePhotoOutput()
-                try configureDataOutput()
-                // try configureVideoOutput()
+                try configureVideoOutput()
+                self.captureSession?.commitConfiguration()
+                self.captureSession?.startRunning()
             } catch {
                 DispatchQueue.main.async {
                     completionHandler(error)
@@ -153,13 +150,28 @@ extension CameraController {
         }
     }
 
+    func resume(completionHandler: @escaping (Error?) -> Void) {
+        guard let captureSession = self.captureSession else {
+            completionHandler(CameraControllerError.captureSessionIsMissing)
+            return
+        }
+        DispatchQueue(label: "prepare").async {
+            if(!captureSession.isRunning){
+                captureSession.startRunning()
+            }
+            DispatchQueue.main.async {
+                completionHandler(nil)
+            }
+        }
+    }
+
     func displayPreview(on view: UIView) throws {
         guard let captureSession = self.captureSession, captureSession.isRunning else { throw CameraControllerError.captureSessionIsMissing }
 
         self.previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
         self.previewLayer?.videoGravity = AVLayerVideoGravity.resizeAspectFill
         self.previewLayer?.cornerRadius = 16;
-        
+
         view.layer.insertSublayer(self.previewLayer!, at: 0)
         self.previewLayer?.frame = view.frame
 
@@ -205,7 +217,8 @@ extension CameraController {
         }
 
         previewLayer?.connection?.videoOrientation = videoOrientation
-        dataOutput?.connections.forEach { $0.videoOrientation = videoOrientation }
+        //Orientation is not supported for video connections
+        //videoOutput?.connections.forEach { $0.videoOrientation = videoOrientation }
         photoOutput?.connections.forEach { $0.videoOrientation = videoOrientation }
     }
 
@@ -397,9 +410,9 @@ extension CameraController {
 
     }
 
-    func captureVideo(completion: @escaping (URL?, Error?) -> Void) {
+    func captureVideo(mirror: Bool = false, completion: @escaping (Error?) -> Void) {
         guard let captureSession = self.captureSession, captureSession.isRunning else {
-            completion(nil, CameraControllerError.captureSessionIsMissing)
+            completion(CameraControllerError.captureSessionIsMissing)
             return
         }
         let path = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -410,16 +423,27 @@ extension CameraController {
 
         let fileUrl = path.appendingPathComponent(fileName)
         try? FileManager.default.removeItem(at: fileUrl)
-        /*videoOutput!.startRecording(to: fileUrl, recordingDelegate: self)
-         self.videoRecordCompletionBlock = completion*/
+        
+        if mirror {
+            if let connection = videoOutput?.connection(with: AVMediaType.video), connection.isVideoOrientationSupported {
+                connection.isVideoMirrored = true
+            } else {
+                completion(CameraControllerError.invalidOperation)
+                return
+            }
+        }
+        
+        videoOutput!.startRecording(to: fileUrl, recordingDelegate: self)
+        completion(nil)
     }
 
-    func stopRecording(completion: @escaping (Error?) -> Void) {
+    func stopRecording(completion: @escaping (URL?, Error?) -> Void) {
         guard let captureSession = self.captureSession, captureSession.isRunning else {
-            completion(CameraControllerError.captureSessionIsMissing)
+            completion(nil, CameraControllerError.captureSessionIsMissing)
             return
         }
-        // self.videoOutput?.stopRecording()
+        self.videoCaptureCompletionBlock = completion
+        self.videoOutput?.stopRecording()
     }
 }
 
@@ -493,48 +517,6 @@ extension CameraController: AVCapturePhotoCaptureDelegate {
         } else {
             self.photoCaptureCompletionBlock?(nil, CameraControllerError.unknown)
         }
-    }
-}
-
-extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        guard let completion = sampleBufferCaptureCompletionBlock else { return }
-
-        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            completion(nil, CameraControllerError.unknown)
-            return
-        }
-
-        CVPixelBufferLockBaseAddress(imageBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(imageBuffer, .readOnly) }
-
-        let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer)
-        let width = CVPixelBufferGetWidth(imageBuffer)
-        let height = CVPixelBufferGetHeight(imageBuffer)
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo: UInt32 = CGBitmapInfo.byteOrder32Little.rawValue |
-            CGImageAlphaInfo.premultipliedFirst.rawValue
-
-        let context = CGContext(
-            data: baseAddress,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: bytesPerRow,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo
-        )
-
-        guard let cgImage = context?.makeImage() else {
-            completion(nil, CameraControllerError.unknown)
-            return
-        }
-
-        let image = UIImage(cgImage: cgImage)
-        completion(image.fixedOrientation(), nil)
-
-        sampleBufferCaptureCompletionBlock = nil
     }
 }
 
@@ -640,38 +622,10 @@ extension UIImage {
 
 extension CameraController: AVCaptureFileOutputRecordingDelegate {
     func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
-        /*if error == nil {
-         self.videoRecordCompletionBlock?(outputFileURL, nil)
-         } else {
-         self.videoRecordCompletionBlock?(nil, error)
-         }*/
-    }
-}
-
-extension UIColor {
-    public convenience init?(hex: String) {
-        let r, g, b, a: CGFloat
-
-        if hex.hasPrefix("#") {
-            let start = hex.index(hex.startIndex, offsetBy: 1)
-            let hexColor = String(hex[start...])
-
-            if hexColor.count == 8 {
-                let scanner = Scanner(string: hexColor)
-                var hexNumber: UInt64 = 0
-
-                if scanner.scanHexInt64(&hexNumber) {
-                    r = CGFloat((hexNumber & 0xff000000) >> 24) / 255
-                    g = CGFloat((hexNumber & 0x00ff0000) >> 16) / 255
-                    b = CGFloat((hexNumber & 0x0000ff00) >> 8) / 255
-                    a = CGFloat(hexNumber & 0x000000ff) / 255
-
-                    self.init(red: r, green: g, blue: b, alpha: a)
-                    return
-                }
-            }
+        if error == nil {
+            self.videoCaptureCompletionBlock?(outputFileURL, nil)
+        } else {
+            self.videoCaptureCompletionBlock?(nil, error)
         }
-
-        return nil
     }
 }
